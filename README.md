@@ -1,3 +1,9 @@
+whats this project?
+-> User askes a question or promt to any related subjects, The ai what we have now (gpt, gemini, deepseeek, perplex) this gives broad answers, and the problem is we should be more specific everytime>
+this project solves this, by collecting answers from all the ai models, cleans it and structres it accordingly and give back the users an proper structured guide
+
+
+
 1. Built database using postgrsql, created few tabels for user auth, table to store raw text from ai, user promts, sessions and structred resource/guide.
 2. used fast api for backend.
 3. built data pipelines, which takes the user promt, sends to different ai model( for now only gemini/ others ask money).
