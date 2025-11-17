@@ -5,7 +5,7 @@ from app.pipeline.orchestrator import run_pipeline   # import orchestrator (asyn
 from typing import List, Dict, Any
 # Export router as pipeline_router so main.py can import it consistently
 pipeline_router = APIRouter(prefix="/pipeline", tags=["Pipeline"])
-
+    
 @pipeline_router.post("/run")
 async def run_endpoint(job: JobCreate):
     print("📩 Received request:", job.dict())

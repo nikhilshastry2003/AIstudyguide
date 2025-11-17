@@ -111,8 +111,13 @@ async def run_pipeline(prompt: str, user_id: Optional[int] = None, session_id: O
             text = po.get("output_text") or po.get("text") or ""
             if isinstance(text, str) and text.strip():
                 raw_texts.append(text)
+                
+        print("🧠 DEBUG raw_texts:", raw_texts, type(raw_texts))
+
 
         guide = clean_structure(prompt, raw_texts)
+        print("🧠 DEBUG guide:", guide)
+
 
         # 5) Save final guide into pipeline.guides
         guide_json_str = json.dumps(guide)

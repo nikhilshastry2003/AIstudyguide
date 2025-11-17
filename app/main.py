@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from app.database import db_pool 
+from app.routers.pipeline_router import pipeline_router
 
 # Import routers from your existing ones
 from app.routers import auth, chats, resource, subjects, sessions , pipeline_router

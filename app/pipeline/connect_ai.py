@@ -53,20 +53,22 @@ async def call_openai(prompt: str) -> dict:
 # -----------------------------
 # Gemini connector
 # -----------------------------
-def call_gemini(prompt: str):
+import asyncio
+
+async def call_gemini(prompt: str) -> dict:
     api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return {"mock": True, "provider": "gemini", "choices": [{"message": {"content": "MOCK Gemini answer for: " + prompt}}]}
+
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={api_key}"
-    
     headers = {"Content-Type": "application/json"}
-    data = {
-        "contents": [
-            {"parts": [{"text": prompt}]}
-        ]
-    }
-    
-    response = requests.post(url, headers=headers, json=data)
-    result = response.json()
-    return result
+    data = {"contents": [{"parts": [{"text": prompt}]}]}
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(url, headers=headers, json=data)
+        resp.raise_for_status()
+        return resp.json()
+
 
 # -----------------------------
 # DeepSeek connector

@@ -1,36 +1,57 @@
+# app/pipeline/cleaner.py
 from typing import List, Dict, Any
 import re
+import json
 
-# Clean and structure the raw text
-def clean_structure(prompt: str, raw: List[Any]) -> Dict[str, Any]:
-    cleaned = []
+def extract_text_from_raw(raw_text: str) -> str:
+    """Extracts readable content from any mock JSON or text."""
+    try:
+        # Try to load as JSON
+        data = json.loads(raw_text)
+        if isinstance(data, dict):
+            # Gemini / OpenAI style
+            if "choices" in data and isinstance(data["choices"], list):
+                content = data["choices"][0].get("message", {}).get("content")
+                if content:
+                    return content
+        return raw_text
+    except Exception:
+        # Not JSON, just return as text
+        return raw_text
 
-    for text in raw:
-        # ✅ Skip anything that's not a string
-        if not isinstance(text, str):
+def clean_structure(prompt: str, raw_texts: List[str]) -> Dict[str, Any]:
+    """
+    Takes raw provider outputs, extracts readable content, cleans it, and structures it.
+    """
+
+    #Extract and clean readable parts
+    cleaned_texts = []
+    for text in raw_texts:
+        if not text:
             continue
+        extracted = extract_text_from_raw(text)
+        cleaned = re.sub(r'\s+', ' ', extracted.strip())
+        cleaned_texts.append(cleaned)
 
-        # remove extra spaces
-        text = text.strip()
-        text = re.sub(r'\s+', ' ', text)
+    combined = "\n\n".join(cleaned_texts)
 
-        # normalize
-        text = text.lower()
-        text = re.sub(r'[^\w\s]', '', text)  # remove punctuation
+    # Create overview (first line)
+    overview = cleaned_texts[0] if cleaned_texts else "No content available."
+    overview = re.sub(r'[^\w\s,.]', '', overview)
+    overview = overview.strip() + "."
 
-        cleaned.append(text)
+    # ✅ Simple section splitting
+    sections = [{"title": f"From {i+1} Provider", "content": txt} for i, txt in enumerate(cleaned_texts)]
 
-    # remove duplicates safely
-    unique = list(dict.fromkeys(cleaned))
-    combined = "\n\n".join(unique) if unique else "No valid text generated."
-
+    # Build final structured guide
     guide = {
-        "overview": combined[:300],
-        "sections": [
-            {"title": "Main Content", "content": combined}
+        "overview": overview,
+        "sections": sections or [{"title": "Main Content", "content": combined}],
+        "prerequisites": [f"Basic understanding of {prompt.split()[0]}", "General computer knowledge"],
+        "extra_tips": [
+            "Try relating this concept to a real database you’ve seen (like MySQL or MongoDB).",
+            "Sketch a simple diagram of how this fits into a data system."
         ],
-        "prerequisites": [],
-        "extra_tips": [],
         "sources": ["openai", "gemini", "deepseek"]
     }
 

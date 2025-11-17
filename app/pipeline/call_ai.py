@@ -17,9 +17,9 @@ async def call_ai(prompt: str) -> List[Dict[str, Any]]:
     """
     # list of callables in the same order as providers_list
     tasks = [
-        #call_openai(prompt),
+        call_openai(prompt),
         call_gemini(prompt),
-        #call_deepseek(prompt),
+        call_deepseek(prompt),
     ]
 
     # Run them concurrently and capture exceptions instead of raising (so one failure doesn't kill everything)
