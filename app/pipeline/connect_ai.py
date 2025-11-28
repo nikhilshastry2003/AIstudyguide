@@ -1,31 +1,25 @@
 # app/pipeline/connect_ai.py
 # Connectors to external AI providers (OpenAI, Gemini, DeepSeek).
-# These functions return the raw provider response (dict) so the caller
-# can normalize / extract text in one place.
+# Returns raw provider JSON so the normalizer / extractor can handle it.
 
 import os
 import json
 from dotenv import load_dotenv
 import httpx
-import requests
+
 load_dotenv()
 
-# Read keys from .env. Use clear names (match your .env).
-OPENAI_API = os.getenv("OPENAI_API")
-GEMINI_API = os.getenv("GEMINI_API")
-DEEPSEEK_API = os.getenv("DEEPSEEK_API")
-
+# Use clear env names. Accept both older names and new ones for convenience.
+OPENAI_API = os.getenv("OPENAI_API") or os.getenv("OPENAI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GEMINI_API")
+DEEPSEEK_API = os.getenv("DEEPSEEK_API") or os.getenv("DEEPSEEK_API_KEY")
 
 # -----------------------------
-# OpenAI connector
+# OpenAI connector (async)
 # -----------------------------
 async def call_openai(prompt: str) -> dict:
-    """
-    Calls OpenAI Chat Completions endpoint and returns the parsed JSON.
-    If API key missing, return a small mock for local testing.
-    """
     if not OPENAI_API:
-        # Return a simple mock response so pipeline runs during dev/testing
+        # Mock so dev flow continues without API keys
         return {"mock": True, "provider": "openai", "choices": [{"message": {"content": "MOCK OpenAI answer for: " + prompt}}]}
 
     url = "https://api.openai.com/v1/chat/completions"
@@ -34,50 +28,70 @@ async def call_openai(prompt: str) -> dict:
         "Content-Type": "application/json",
     }
     payload = {
-        "model": "gpt-4",                       # change as needed
+        "model": "gpt-4",
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 500
     }
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(url, headers=headers, json=payload)
-        # raise for HTTP errors (so caller receives an Exception which call_ai will handle)
         resp.raise_for_status()
         data = resp.json()
 
-    # Helpful debug log (safe to remove later)
-    print("🔍 OPENAI RAW:", json.dumps(data, indent=2)[:2000])  # limit output
+    # Return raw JSON — extractor will pick out the useful bits
+    print("🔍 OPENAI RAW:", json.dumps(data, indent=2)[:1000])
     return data
 
 
-# -----------------------------
-# Gemini connector
-# -----------------------------
-import asyncio
+
+# Gemini connector (async)
+# Notes:
+# - Use GEMINI_API_KEY env variable name (commonly used).
+# - Use the v1beta models/{model}:generateContent endpoint (model string must be correct).
+# - Some Google Generative API shapes place text in "candidates" or "candidates[0].content.parts".
 
 async def call_gemini(prompt: str) -> dict:
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("GEMINI_API")
     if not api_key:
-        return {"mock": True, "provider": "gemini", "choices": [{"message": {"content": "MOCK Gemini answer for: " + prompt}}]}
+        return {
+            "mock": True,
+            "provider": "gemini",
+            "candidates": [{
+                "content": {"parts": [{"text": "MOCK Gemini answer for: " + prompt}]}
+            }]
+        }
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={api_key}"
-    headers = {"Content-Type": "application/json"}
-    data = {"contents": [{"parts": [{"text": prompt}]}]}
+    # Correct model name
+    model = "gemini-2.5-pro"
+
+    # ❗ FINAL CORRECT ENDPOINT (v1beta)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent"
+
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ]
+    }
+
+    params = {"key": api_key}
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(url, headers=headers, json=data)
+        resp = await client.post(url, params=params, json=payload)
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+
+    print("🔍 GEMINI RAW:", json.dumps(data, indent=2)[:2000])
+    return data
 
 
-# -----------------------------
-# DeepSeek connector
-# -----------------------------
+
+# DeepSeek connector (async)
+
 async def call_deepseek(prompt: str) -> dict:
-    """
-    Calls DeepSeek (example) — update endpoint if provider uses a different path.
-    If API key missing, return a mock.
-    """
     if not DEEPSEEK_API:
         return {"mock": True, "provider": "deepseek", "choices": [{"message": {"content": "MOCK DeepSeek answer for: " + prompt}}]}
 
@@ -97,26 +111,25 @@ async def call_deepseek(prompt: str) -> dict:
         resp.raise_for_status()
         data = resp.json()
 
-    print("🔍 DEEPSEEK RAW:", json.dumps(data, indent=2)[:2000])
+    print("🔍 DEEPSEEK RAW:", json.dumps(data, indent=2)[:1000])
     return data
 
 
-# -----------------------------
-# Utility: extract_text
-# -----------------------------
+
+# Defensive extractor for raw provider JSON
+
 def extract_text(provider: str, data: dict) -> str:
     """
-    Defensive extractor for provider responses. Tries common response shapes.
-    Returns the best text found (or empty string).
-    Keep this small & extend later if you see new raw shapes in logs.
+    Try several known shapes and return the best text. If nothing found,
+    return either a JSON-string preview or ''.
     """
     if not isinstance(data, dict):
         return str(data or "")
 
-    provider = provider.lower()
-    # OpenAI chat-style
-    if provider == "openai":
-        # common shapes: choices[0].message.content or choices[0].text
+    provider_key = provider.lower()
+
+    # OpenAI chat completion shape
+    if provider_key == "openai":
         try:
             return data["choices"][0]["message"]["content"].strip()
         except Exception:
@@ -126,20 +139,27 @@ def extract_text(provider: str, data: dict) -> str:
         except Exception:
             pass
 
-    # Gemini style (candidate parts)
-    if provider == "gemini":
+    # Gemini candidate style
+    if provider_key == "gemini":
+        # Google generative API often returns 'candidates' with nested content.parts
         try:
+            # new style: candidates -> content -> parts -> text
             return data["candidates"][0]["content"]["parts"][0]["text"].strip()
         except Exception:
             pass
         try:
-            # alternative shapes
+            # older/alternate shapes
+            return data["candidates"][0]["text"].strip()
+        except Exception:
+            pass
+        try:
+            # sometimes payload is under 'output'
             return data["output"][0]["text"].strip()
         except Exception:
             pass
 
-    # DeepSeek / OpenAI-like fallback
-    if provider == "deepseek":
+    # Deepseek and other openai-like shapes
+    if provider_key == "deepseek":
         try:
             return data["choices"][0]["message"]["content"].strip()
         except Exception:
@@ -149,13 +169,13 @@ def extract_text(provider: str, data: dict) -> str:
         except Exception:
             pass
 
-    # Generic fallback: look for any likely text field
+    # Generic fallback fields
     for key in ("text", "content", "message"):
         val = data.get(key)
         if isinstance(val, str) and val.strip():
             return val.strip()
 
-    # Last resort: return truncated JSON string so you at least see something
+    # Pretty-print small JSON preview as last resort
     try:
         return json.dumps(data)[:2000]
     except Exception:

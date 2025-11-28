@@ -4,55 +4,75 @@ import re
 import json
 
 def extract_text_from_raw(raw_text: str) -> str:
-    """Extracts readable content from any mock JSON or text."""
+    """If string is JSON, attempt to find common fields; else return the string."""
+    if not isinstance(raw_text, str):
+        # If someone accidentally passed a dict, try to stringify or extract known fields
+        try:
+            return json.dumps(raw_text)[:2000]
+        except Exception:
+            return str(raw_text)
+
     try:
-        # Try to load as JSON
         data = json.loads(raw_text)
         if isinstance(data, dict):
-            # Gemini / OpenAI style
+            # OpenAI-like
             if "choices" in data and isinstance(data["choices"], list):
-                content = data["choices"][0].get("message", {}).get("content")
-                if content:
-                    return content
+                msg = data["choices"][0].get("message", {}).get("content")
+                if msg:
+                    return msg
+            # Gemini-like
+            if "candidates" in data and isinstance(data["candidates"], list):
+                cand = data["candidates"][0]
+                # many shapes: cand["content"]["parts"][0]["text"] or cand["content"]["text"]
+                try:
+                    return cand["content"]["parts"][0]["text"]
+                except Exception:
+                    pass
+                try:
+                    return cand.get("text", "")
+                except Exception:
+                    pass
+        # fallback to original string
         return raw_text
     except Exception:
-        # Not JSON, just return as text
         return raw_text
 
-def clean_structure(prompt: str, raw_texts: List[str]) -> Dict[str, Any]:
-    """
-    Takes raw provider outputs, extracts readable content, cleans it, and structures it.
-    """
 
-    #Extract and clean readable parts
+def clean_structure(prompt: str, raw_texts: List[str]) -> Dict[str, Any]:
     cleaned_texts = []
     for text in raw_texts:
         if not text:
             continue
-        extracted = extract_text_from_raw(text)
-        cleaned = re.sub(r'\s+', ' ', extracted.strip())
-        cleaned_texts.append(cleaned)
+        piece = extract_text_from_raw(text)
+        piece = re.sub(r'\s+', ' ', piece.strip())
+        cleaned_texts.append(piece)
 
-    combined = "\n\n".join(cleaned_texts)
+    if not cleaned_texts:
+        combined = ""
+    else:
+        # preserve order provided by providers
+        combined = "\n\n".join(cleaned_texts)
 
-    # Create overview (first line)
-    overview = cleaned_texts[0] if cleaned_texts else "No content available."
-    overview = re.sub(r'[^\w\s,.]', '', overview)
-    overview = overview.strip() + "."
+    overview = (cleaned_texts[0] if cleaned_texts else "No content available..")
+    # small sanitization
+    overview = re.sub(r'[^\w\s,.\-:]', '', overview).strip()
+    if overview and not overview.endswith("."):
+        overview = overview + "."
 
-    # ✅ Simple section splitting
-    sections = [{"title": f"From {i+1} Provider", "content": txt} for i, txt in enumerate(cleaned_texts)]
+    sections = []
+    # if we have multiple provider responses, create a section per provider
+    for i, txt in enumerate(cleaned_texts):
+        sections.append({"title": f"From {i+1} Provider", "content": txt})
 
-    # Build final structured guide
+    if not sections:
+        sections = [{"title": "Main Content", "content": combined}]
+
     guide = {
         "overview": overview,
-        "sections": sections or [{"title": "Main Content", "content": combined}],
-        "prerequisites": [f"Basic understanding of {prompt.split()[0]}", "General computer knowledge"],
-        "extra_tips": [
-            "Try relating this concept to a real database you’ve seen (like MySQL or MongoDB).",
-            "Sketch a simple diagram of how this fits into a data system."
-        ],
-        "sources": ["openai", "gemini", "deepseek"]
+        "sections": sections,
+        "prerequisites": [],   # let frontend or later logic fill this
+        "extra_tips": [],
+        "sources": []
     }
 
     return guide

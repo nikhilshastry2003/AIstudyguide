@@ -59,8 +59,8 @@ class SessionCreate(BaseModel):
 # When user starts a new job in pipeline (submits a prompt),
 # this schema validates the incoming request body.
 class JobCreate(BaseModel):
-    user_id: int
     prompt: str
+    user_id: int
 
 
 # This schema defines what we send back when returning job info.
