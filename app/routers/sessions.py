@@ -1,17 +1,12 @@
-# ---------------- SESSIONS ----------------
-from fastapi import FastAPI, HTTPException, APIRouter, Depends
-from app.schemas import UserCreate , UserLogin, SessionCreate
-from passlib.context import CryptContext
+from fastapi import HTTPException, APIRouter, Depends
+from app.schemas import SessionCreate
 from app.database import get_db
-import psycopg2
 
 sessions_router = APIRouter()
 
+
 @sessions_router.post("/create-session")
 def create_session(session: SessionCreate, db=Depends(get_db)):
-    """
-    Create a new session under a subject.
-    """
     cur = db.cursor()
     try:
         cur.execute(
@@ -20,25 +15,22 @@ def create_session(session: SessionCreate, db=Depends(get_db)):
             VALUES (%s, %s)
             RETURNING session_id
             """,
-            (session.subject_id, session.title)
+            (session.subject_id, session.title),
         )
         session_id = cur.fetchone()[0]
         db.commit()
         return {"session_id": session_id, "message": "Session created successfully"}
-    
+
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
-    
+
     finally:
         cur.close()
-        
-        
+
+
 @sessions_router.get("/my-sessions/{subject_id}")
 def get_sessions(subject_id: int, db=Depends(get_db)):
-    """
-    Fetch all sessions under a given subject.
-    """
     cur = db.cursor()
     try:
         cur.execute(
@@ -48,7 +40,7 @@ def get_sessions(subject_id: int, db=Depends(get_db)):
             WHERE subject_id = %s
             ORDER BY created_at ASC
             """,
-            (subject_id,)
+            (subject_id,),
         )
         sessions = cur.fetchall()
         return [
