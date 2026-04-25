@@ -26,6 +26,8 @@ def init_db_pool():
     )
 
 def get_db():
+    if db_pool is None:
+        raise RuntimeError("Database is not available")
     conn = db_pool.getconn()
     try:
         yield conn

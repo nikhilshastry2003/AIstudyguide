@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from app.routers import auth, chats, resource, subjects, sessions, pipeline_router
-from app.database import init_db_pool, db_pool
+from app.database import init_db_pool
 from dotenv import load_dotenv
 import os
 
